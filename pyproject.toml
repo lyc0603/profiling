@@ -22,6 +22,9 @@ dependencies = [
     "requests",
     "matplotlib",
     "seaborn",
+    "pyarrow",
+    "tqdm",
+    "psycopg2-binary",
 ]
 
 [project.optional-dependencies]

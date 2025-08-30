@@ -1,10 +1,10 @@
-# [Project Name]
+# profiling
 
-## Setup
+## 1. Setup
 
 ```
-git clone [HTTPS/SSH URL]
-cd [project-name]
+git clone https://github.com/lyc0603/profiling.git
+cd profiling
 ```
 
 ### Give execute permission to your script and then run `setup_repo.sh`
@@ -15,68 +15,29 @@ chmod +x setup_repo.sh
 . venv/bin/activate
 ```
 
-or follow the step-by-step instructions below between the two horizontal rules:
+## 2. Data Fetching
 
----
+- Run the /scripts/snowflake_data.sql in snowflake project worksheets to unload flipside data
 
-#### Create a python virtual environment
+- Create Directory
+```
+!mkdir -p ./ethereun/token_transfer
 
-- MacOS / Linux
+!mkdir -p ./ethereun/native_transfer
 
-```bash
-python3 -m venv venv
+!mkdir -p ./ethereun/label
+
+!mkdir -p ./ethereun/contract
+```
+- Run the following command in Snowsql
+```
+GET @~/eth_token_transfer/ file://./data/ethereum/contract PATTERN='.*[.]parquet' PARALLEL=32;
+
+GET @~/eth_native_transfer/ file://./data/ethereum/contract PATTERN='.*[.]parquet' PARALLEL=32;
+
+GET @~/eth_label/ file://./data/ethereum/contract PATTERN='.*[.]parquet' PARALLEL=32;
+
+GET @~/eth_label/ file://./data/ethereum/label PATTERN='.*[.]parquet' PARALLEL=32;
 ```
 
-- Windows
-
-```bash
-python -m venv venv
-```
-
-#### Activate the virtual environment
-
-- MacOS / Linux
-
-```bash
-. venv/bin/activate
-```
-
-- Windows (in Command Prompt, NOT Powershell)
-
-```bash
-venv\Scripts\activate.bat
-```
-
-#### Install toml
-
-```
-pip install toml
-```
-
-#### Install the project in editable mode
-
-```bash
-pip install -e ".[dev]"
-```
-
-## Set up the environmental variables
-
-put your APIs in `.env`:
-
-```
-COINGLASS_SECRET="abc123"
-KAIKO_API_KEY="abc123"
-TALLY_API_KEY="xxx"
-SNAPSHOT_API_KEY="aaa"
-OPENAI_API_KEY="sk-xxx"
-```
-
-```
-export $(cat .env | xargs)
-```
-
-# fetch snapshot spaces data
-
-```
-python scripts/fetch_spaces.py
-```
+- Run the /scripts/snowflake_schema.sql in snowflake project worksheets to get data schema
