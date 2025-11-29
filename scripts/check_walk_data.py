@@ -37,13 +37,6 @@ def main():
     print(f"Length: min={min_len}, max={max_len}, avg={avg_len:.2f}")
     print(f"Unique first nodes: {len(first_nodes):,}")
 
-    # Optionally dump first nodes to file
-    out_path = os.path.splitext(WALK_PATH)[0] + "_firstnodes.txt"
-    with open(out_path, "w") as f:
-        for node in sorted(first_nodes, key=int):
-            f.write(str(node) + "\n")
-    print(f"Wrote first-node set to {out_path}")
-
 
 if __name__ == "__main__":
     main()

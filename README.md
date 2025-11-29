@@ -35,9 +35,39 @@ GET @~/eth_token_transfer/ file://./data/ethereum/contract PATTERN='.*[.]parquet
 
 GET @~/eth_native_transfer/ file://./data/ethereum/contract PATTERN='.*[.]parquet' PARALLEL=32;
 
-GET @~/eth_label/ file://./data/ethereum/contract PATTERN='.*[.]parquet' PARALLEL=32;
+GET @~/eth_contract/ file://./data/ethereum/contract PATTERN='.*[.]parquet' PARALLEL=32;
 
 GET @~/eth_label/ file://./data/ethereum/label PATTERN='.*[.]parquet' PARALLEL=32;
 ```
 
 - Run the /scripts/snowflake_schema.sql in snowflake project worksheets to get data schema
+
+
+## 3. Data Processing
+
+- Get stablecoin users
+```
+python process_stablecoin_list
+```
+
+- Merge stablecoin users and anchors
+```
+python merge_stablecoin.py
+```
+
+- Process stablecoin users and anchors
+```
+python scripts/db_id_downloaded.py
+```
+
+- Generate the seed
+```
+python scripts/db_id_out_degree.py
+```
+
+## 4. Evaluation
+
+- Process the trend (the shrinkage of number of address is due to 0 value txn and out degree)
+```
+python scripts/process_trend.py
+```

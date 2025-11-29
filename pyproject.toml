@@ -25,6 +25,11 @@ dependencies = [
     "pyarrow",
     "tqdm",
     "psycopg2-binary",
+    "python-dotenv",
+    "tenacity",
+    "d3blocks",
+    "openai",
+    "dovenv",
 ]
 
 [project.optional-dependencies]

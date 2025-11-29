@@ -10,6 +10,7 @@ Features
 """
 
 import os
+import json
 import random
 import shutil
 from dataclasses import dataclass
@@ -33,7 +34,7 @@ OUTDEG_TABLE = "node_outdeg"
 # ----------------------------
 
 # ---------- Walk Params (edit as needed) ----------
-WALKS_PER_SEED = 2
+WALKS_PER_SEED = 1
 WALK_LENGTH = 40
 DANGLING_POLICY = "restart"  # "restart" | "terminate" | "teleport"
 RNG_SEED = 42  # set to None for nondeterministic
@@ -44,7 +45,7 @@ SPLIT_STRATEGY = "contiguous"  # "contiguous" | "roundrobin"
 from environ.constant import PROCESSED_DATA_PATH
 
 # ---------- Parallelism ----------
-N_WORKERS = 30  # leave 1 core for OS
+N_WORKERS = 15  # leave 1 core for OS
 # ----------------------------------
 
 
@@ -144,43 +145,6 @@ class WeightedWalker:
         return path
 
 
-def _fetch_top_degree_seeds(k: int = 1_000_000) -> List[int]:
-    conn = _get_conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                f"SELECT node FROM {OUTDEG_TABLE} ORDER BY outdeg DESC LIMIT %s;",
-                (k,),
-            )
-            return [row[0] for row in cur]
-    finally:
-        conn.close()
-
-
-def _fetch_random_seeds(k: int = 1_000_000) -> List[int]:
-    conn = _get_conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                f"""
-                WITH sample AS (
-                    SELECT node
-                    FROM {OUTDEG_TABLE} TABLESAMPLE SYSTEM (0.5)
-                    LIMIT %s
-                )
-                SELECT node FROM sample;
-                """,
-                (k * 2,),
-            )
-            seeds = [row[0] for row in cur]
-            if len(seeds) < k:
-                cur.execute(f"SELECT node FROM {OUTDEG_TABLE} LIMIT %s;", (k,))
-                seeds = [row[0] for row in cur]
-            return seeds[:k]
-    finally:
-        conn.close()
-
-
 @dataclass
 class WorkerConfig:
     seeds_pool: List[int]  # used for teleport policy
@@ -253,8 +217,10 @@ def merge_parts(out_dir: str, merged_path: str) -> None:
 
 def main():
     # ----------------- Choose seeds -----------------
-    seeds = _fetch_top_degree_seeds(k=1_000_000)
-    # seeds = _fetch_random_seeds(k=1_000_000)
+    with open(f"{PROCESSED_DATA_PATH}/seed2id.json", "r") as f:
+        seeds = json.load(f)
+    seeds = list(seeds.values())
+
     # ------------------------------------------------
 
     out_dir = f"{PROCESSED_DATA_PATH}/random_walk"

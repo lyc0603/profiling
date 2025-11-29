@@ -1,84 +1,51 @@
 #!/usr/bin/env python3
 """
-Train Node2Vec-style SGNS (float32) using ONLY the 'first-node' vocabulary,
-and force the job to use the **second A100** (GPU index 1 on the host).
+Node2Vec-style SGNS (float32) — NO SUBSAMPLING.
+- Uses all nodes in walks (with --min_count).
+- Sparse embeddings + SparseAdam (memory efficient).
+- Buffered line shuffling; LR warmup+decay; grad clipping.
+- Forces training on selected GPU (default: GPU 1).
 
-It:
-- reads walk lines (space-separated node IDs),
-- restricts vocabulary to the set of first nodes you provide,
-- builds a unigram^0.75 negative sampler,
-- trains SGNS in float32 on **GPU 1**,
-- saves embeddings and the vocab mapping.
-
-USAGE
------
-python scripts/train.py \
-  --walks /home/yichen/profiling/processed_data/random_walk/weighted_walks.txt \
-  --first_nodes /home/yichen/profiling/processed_data/random_walk/weighted_walks_firstnodes.txt \
-  --dim 128 --window 10 --neg 10 --epochs 3 --batch_size 4096 \
-  --out_dir /home/yichen/profiling/processed_data/random_walk/node2vec_firstnodes \
-  --gpu_index 1
-
-
-Notes
------
-- This script **forces CUDA_VISIBLE_DEVICES=1** before importing torch,
-  so it will not touch GPU 0 (which your other job is using).
-- Float32 memory for embeddings: ~ (2 * V * dim * 4) bytes.
-  For V=1,000,000 and dim=128 => ~1.0 GB (plus optimizer/activations).
+Example:
+  CUDA_VISIBLE_DEVICES=1 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+  python scripts/train.py \
+    --walks /home/yichen/profiling/processed_data/random_walk/weighted_walks.txt \
+    --dim 32 --window 8 --neg 5 --epochs 3 --batch_size 4096 --min_count 1 \
+    --out_dir /home/yichen/profiling/processed_data/model
 """
 
-import os
-import argparse
-import random
-import gzip
-import json
-from collections import Counter
+import os, argparse, random, gzip, json
+from collections import Counter, deque
 from typing import Dict, List, Iterator, Tuple
-
 import numpy as np
 from tqdm import tqdm
 
 
-# --------------------- minimal IO helpers ---------------------
-def open_any(path: str):
-    return gzip.open(path, "rt") if path.endswith(".gz") else open(path, "r")
+# -------------------- helpers --------------------
+def open_any(path: str, mode="rt"):
+    return gzip.open(path, mode) if path.endswith(".gz") else open(path, mode)
 
 
-def load_first_nodes(path: str) -> List[int]:
-    with open(path, "r") as f:
-        return [int(line.strip()) for line in f if line.strip()]
-
-
-def build_vocab_from_firstnodes(first_nodes: List[int]) -> Dict[int, int]:
-    # Map node_id -> vocab_index [0..V-1]
-    return {nid: i for i, nid in enumerate(sorted(first_nodes))}
-
-
-def count_freqs(walks_path: str, vocab: Dict[int, int]) -> np.ndarray:
+def build_vocab_and_freqs(path: str, min_count: int):
     counts = Counter()
-    with open_any(walks_path) as f:
-        for line in tqdm(f, desc="Counting token frequencies"):
-            toks = line.strip().split()
-            if not toks:
-                continue
-            for t in toks:
+    with open_any(path, "rt") as f:
+        for line in tqdm(f, desc="Counting tokens"):
+            for t in line.strip().split():
                 try:
                     nid = int(t)
-                except:
+                except ValueError:
                     continue
-                if nid in vocab:
-                    counts[nid] += 1
-    V = len(vocab)
-    freqs = np.zeros(V, dtype=np.int64)
-    for nid, c in counts.items():
-        freqs[vocab[nid]] = c
-    freqs[freqs == 0] = 1
-    return freqs
+                counts[nid] += 1
+    kept = [(nid, c) for nid, c in counts.items() if c >= min_count]
+    kept.sort(key=lambda x: -x[1])
+    vocab = {nid: i for i, (nid, _) in enumerate(kept)}
+    freqs = np.array([c for _, c in kept], dtype=np.int64)
+    if len(freqs) == 0:
+        raise RuntimeError("No tokens met min_count; lower --min_count")
+    return vocab, freqs
 
 
 def build_alias_from_freqs(freqs: np.ndarray):
-    # unigram^0.75 alias table
     prob = freqs.astype(np.float64)
     prob = np.power(prob, 0.75)
     prob /= prob.sum()
@@ -107,165 +74,163 @@ def alias_draw(J, q, rng: np.random.Generator) -> int:
     return int(k if rng.random() < q[k] else J[k])
 
 
+def line_iter_shuffled(path: str, buf_lines=200_000):
+    buf = deque()
+    opener = gzip.open if path.endswith(".gz") else open
+    with opener(path, "rt") as f:
+        for line in f:
+            buf.append(line)
+            if len(buf) >= buf_lines:
+                idx = np.random.permutation(len(buf))
+                for i in idx:
+                    yield buf[i]
+                buf.clear()
+        idx = np.random.permutation(len(buf))
+        for i in idx:
+            yield buf[i]
+
+
 def pair_stream(
-    walks_path: str, vocab: Dict[int, int], window: int, epochs: int
+    path: str, vocab: Dict[int, int], window: int, epochs: int
 ) -> Iterator[Tuple[int, int]]:
-    ids = vocab
     for _ in range(epochs):
-        with open_any(walks_path) as f:
-            for line in f:
-                toks = line.strip().split()
-                if not toks:
+        for line in line_iter_shuffled(path):
+            idx_seq: List[int] = []
+            for t in line.strip().split():
+                try:
+                    nid = int(t)
+                except ValueError:
                     continue
-                seq = []
-                for t in toks:
-                    try:
-                        nid = int(t)
-                    except:
-                        continue
-                    idx = ids.get(nid)
-                    if idx is not None:
-                        seq.append(idx)
-                L = len(seq)
-                if L == 0:
-                    continue
-                for i in range(L):
-                    c = seq[i]
-                    w = random.randint(1, window)  # dynamic window
-                    left = max(0, i - w)
-                    right = min(L, i + w + 1)
-                    for j in range(left, right):
-                        if j == i:
-                            continue
-                        yield c, seq[j]
+                idx = vocab.get(nid)
+                if idx is not None:
+                    idx_seq.append(idx)
+            L = len(idx_seq)
+            if L < 2:
+                continue
+            for i in range(L):
+                c = idx_seq[i]
+                w = random.randint(1, window)
+                left, right = max(0, i - w), min(L, i + w + 1)
+                for j in range(left, right):
+                    if j != i:
+                        yield c, idx_seq[j]
 
 
-# --------------------- main (sets GPU=1 before torch import) ---------------------
+# -------------------- main --------------------
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--walks", required=True)
-    ap.add_argument(
-        "--first_nodes",
-        required=True,
-        help="text file of first nodes (one ID per line)",
-    )
-    ap.add_argument("--dim", type=int, default=128)
-    ap.add_argument("--window", type=int, default=10)
-    ap.add_argument("--neg", type=int, default=10)
+    ap.add_argument("--dim", type=int, default=64)
+    ap.add_argument("--window", type=int, default=8)
+    ap.add_argument("--neg", type=int, default=5)
     ap.add_argument("--epochs", type=int, default=3)
     ap.add_argument("--batch_size", type=int, default=4096)
-    ap.add_argument("--lr", type=float, default=0.025)
+    ap.add_argument("--lr", type=float, default=0.01)
+    ap.add_argument("--min_count", type=int, default=1)
     ap.add_argument("--out_dir", required=True)
-    # Optional override if you want a different GPU later
-    ap.add_argument(
-        "--gpu_index", type=int, default=1, help="Use this host GPU index (default=1)"
-    )
+    ap.add_argument("--gpu_index", type=int, default=1)
     args = ap.parse_args()
 
-    # Force this process to see ONLY the selected GPU before importing torch
+    # GPU + allocator (set before torch import)
     if args.gpu_index >= 0:
         os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
         os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu_index)
+    os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
-    # Now import torch so it binds to the masked device set
     import torch
     from torch import nn
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Device:", device)
     if device.type == "cuda":
-        print("GPU name:", torch.cuda.get_device_name(0))
+        print("GPU:", torch.cuda.get_device_name(0))
+        torch.backends.cuda.matmul.allow_tf32 = True
 
-    # 1) Load fixed vocab from first nodes
-    first_nodes = load_first_nodes(args.first_nodes)
-    print(f"Loaded first-node list: {len(first_nodes):,} IDs")
-    vocab = build_vocab_from_firstnodes(first_nodes)
+    # vocab + freqs
+    vocab, freqs = build_vocab_and_freqs(args.walks, args.min_count)
     V = len(vocab)
+    print(f"Vocab size: {V:,}")
 
-    # 2) Count frequencies & build alias table
-    freqs = count_freqs(args.walks, vocab)
+    # negative sampler
     J, q = build_alias_from_freqs(freqs)
     rng = np.random.default_rng(1234)
 
-    # 3) Model (float32) + optimizer
+    # model (sparse embeddings)
     class SGNS(nn.Module):
-        def __init__(self, vocab_size: int, dim: int):
+        def __init__(self, V, D):
             super().__init__()
-            self.in_emb = nn.Embedding(vocab_size, dim)  # float32
-            self.out_emb = nn.Embedding(vocab_size, dim)
-            nn.init.uniform_(self.in_emb.weight, -0.5 / dim, 0.5 / dim)
+            self.in_emb = nn.Embedding(V, D, sparse=True)
+            self.out_emb = nn.Embedding(V, D, sparse=True)
+            nn.init.uniform_(self.in_emb.weight, -0.5 / D, 0.5 / D)
             nn.init.zeros_(self.out_emb.weight)
             self.logsigmoid = nn.LogSigmoid()
 
-        def forward(
-            self, centers: torch.Tensor, pos: torch.Tensor, neg: torch.Tensor
-        ) -> torch.Tensor:
-            cen = self.in_emb(centers)  # [B, D]
-            pos_w = self.out_emb(pos)  # [B, D]
-            neg_w = self.out_emb(neg)  # [B, K, D]
-            pos_score = torch.sum(cen * pos_w, dim=1)  # [B]
-            neg_score = torch.bmm(neg_w, cen.unsqueeze(2)).squeeze(2)  # [B, K]
-            loss = -(
+        def forward(self, c, pos, neg):
+            cen = self.in_emb(c)
+            pos_w = self.out_emb(pos)
+            neg_w = self.out_emb(neg)
+            pos_score = torch.sum(cen * pos_w, dim=1)
+            neg_score = torch.bmm(neg_w, cen.unsqueeze(2)).squeeze(2)
+            return -(
                 self.logsigmoid(pos_score).mean()
                 + self.logsigmoid(-neg_score).mean(dim=1).mean()
             )
-            return loss
 
     model = SGNS(V, args.dim).to(device)
-    opt = torch.optim.Adam(model.parameters(), lr=args.lr)
+    opt = torch.optim.SparseAdam(model.parameters(), lr=args.lr)
 
-    # 4) Training stream
-    stream = pair_stream(args.walks, vocab, window=args.window, epochs=args.epochs)
+    # warmup + light decay
+    warmup = 5_000
+    decay_after = 200_000
+    sched = torch.optim.lr_scheduler.LambdaLR(
+        opt,
+        lr_lambda=lambda s: min(1.0, (s + 1) / warmup)
+        * (1.0 if s < decay_after else 0.5),
+    )
 
-    B = args.batch_size
-    K = args.neg
-    centers_buf: List[int] = []
-    ctx_buf: List[int] = []
-
+    # train
+    stream = pair_stream(args.walks, vocab, args.window, args.epochs)
+    B, K = args.batch_size, args.neg
+    buf_c, buf_p = [], []
     pbar = tqdm(desc="Training", unit="batch")
 
-    def flush_batch():
-        if not centers_buf:
+    def flush():
+        if not buf_c:
             return
-        centers = torch.tensor(centers_buf, dtype=torch.long, device=device)
-        pos = torch.tensor(ctx_buf, dtype=torch.long, device=device)
-        # negatives via alias sampling
+        centers = torch.tensor(buf_c, dtype=torch.long, device=device)
+        pos = torch.tensor(buf_p, dtype=torch.long, device=device)
         neg_np = np.stack(
-            [
-                [alias_draw(J, q, rng) for _ in range(K)]
-                for _ in range(len(centers_buf))
-            ],
+            [[alias_draw(J, q, rng) for _ in range(K)] for _ in range(len(buf_c))],
             axis=0,
         )
         neg = torch.tensor(neg_np, dtype=torch.long, device=device)
-
         opt.zero_grad(set_to_none=True)
         loss = model(centers, pos, neg)
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         opt.step()
-
+        sched.step()
         pbar.set_postfix(loss=float(loss.detach().cpu()))
         pbar.update(1)
-        centers_buf.clear()
-        ctx_buf.clear()
+        buf_c.clear()
+        buf_p.clear()
 
     for c, p in stream:
-        centers_buf.append(c)
-        ctx_buf.append(p)
-        if len(centers_buf) >= B:
-            flush_batch()
-    flush_batch()
+        buf_c.append(c)
+        buf_p.append(p)
+        if len(buf_c) >= B:
+            flush()
+    flush()
     pbar.close()
 
-    # 5) Save embeddings + vocab
+    # save
     os.makedirs(args.out_dir, exist_ok=True)
-    emb_path = os.path.join(args.out_dir, "embeddings.pt")
-    vocab_path = os.path.join(args.out_dir, "vocab_firstnodes.json")
-    torch.save(model.in_emb.weight.detach().cpu(), emb_path)
-    with open(vocab_path, "w") as f:
-        json.dump({str(k): int(v) for k, v in vocab.items()}, f)
-    print(f"Saved: {emb_path}  (shape: [{V}, {args.dim}])")
-    print(f"Saved: {vocab_path}")
+    torch.save(
+        model.in_emb.weight.detach().cpu(), os.path.join(args.out_dir, "embeddings.pt")
+    )
+    with open(os.path.join(args.out_dir, "vocab_allnodes.json"), "w") as f:
+        json.dump({str(nid): int(i) for nid, i in vocab.items()}, f)
+    print("Saved model + vocab.")
 
 
 if __name__ == "__main__":

@@ -9,6 +9,13 @@ PROCESSED_DATA_PATH = PROJECT_ROOT / "processed_data"
 FIGURE_PATH = PROJECT_ROOT / "figures"
 TABLE_PATH = PROJECT_ROOT / "tables"
 
+# Stablecoin Contract
+USDC = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
+USDT = "0xdac17f958d2ee523a2206206994597c13d831ec7"
+
+# GraphQL Endpoint
+ENS_ENDPOINT = "https://gateway.thegraph.com/api/subgraphs/id/5XqPmWe6gjyrJtFn9cLy237i4cWw2j9HcUJEXsP5qGtH"
+
 # Snowflake Data Schema
 token_transfer_schema = [
     "block_number",
