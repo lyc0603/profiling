@@ -12,7 +12,7 @@ CPU Word2Vec (Gensim) trainer for random-walk sequences.
 Usage:
   python scripts/cpu_w2v.py \
     --walks /home/yichen/profiling/processed_data/random_walk/weighted_walks.txt \
-    --vector_size 64 --window 8 --min_count 1 --negative 15 --epochs 5 --alpha 0.02\
+    --vector_size 64 --window 8 --min_count 1 --negative 15 --epochs 10 --alpha 0.02\
     --shuffle_buf 250000 --batch_words 300000 --sample 1e-5 --ns_exponent 0.5\
     --out_dir /home/yichen/profiling/processed_data/model \
     --save_model --save_kv --save_bin  # choose what to save

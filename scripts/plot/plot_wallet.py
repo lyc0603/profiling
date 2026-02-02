@@ -9,15 +9,12 @@ import seaborn as sns
 from environ.constant import PROCESSED_DATA_PATH
 
 # Load the country list
-with open(PROCESSED_DATA_PATH / "embedding" / "anchor_country.json") as f:
+with open(PROCESSED_DATA_PATH / "embedding" / "anchor_country_multiple.json") as f:
     anchor_country = json.load(f)
 
 country_dict = {}
 for idx, country in enumerate(anchor_country):
     country_dict[idx] = country
-
-# Manually fix country names if needed
-country_dict[77] = "South Korea"
 
 # Load the address to wallet country mapping
 with open(PROCESSED_DATA_PATH / "address_wallet_country.json") as f:

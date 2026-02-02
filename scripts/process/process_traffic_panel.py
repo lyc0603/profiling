@@ -5,13 +5,10 @@ import glob
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from environ.constant import DATA_PATH, PROCESSED_DATA_PATH
+from environ.constant import DATA_PATH, PROCESSED_DATA_PATH, MIN_DATE, MAX_DATE
 from tqdm import tqdm
 
 df_traffic_all = []
-MIN_DATE = "2015-10-01"
-MAX_DATE = "2025-08-01"
-
 
 for path in ["30/30", "archive", "Archive_old"]:
     traffic_roots = glob.glob(str(DATA_PATH / "traffic" / path))
@@ -67,28 +64,12 @@ for path in ["30/30", "archive", "Archive_old"]:
                     )
                     before_merge_country = before_merge_country.union(this_file_country)
 
-            df_traffic = df_traffic.loc[df_traffic["date"] < "2025-08-01"]
-            df_traffic = df_traffic.drop(columns=["date"]).mean()
-            df_traffic = df_traffic.to_frame().T
+            df_traffic = df_traffic.loc[df_traffic["date"] < MAX_DATE]
+            df_traffic = df_traffic.melt(
+                id_vars=["date"], var_name="country", value_name="traffic"
+            )
             df_traffic["cex"] = cex_name
             df_traffic_all.append(df_traffic)
 
 df_traffic_all = pd.concat(df_traffic_all)
-df_traffic_all.fillna(0, inplace=True)
-df_traffic_all = df_traffic_all[
-    ["cex"] + [c for c in df_traffic_all.columns if c != "cex"]
-]
-
-# convert to percentage
-df_traffic_all = df_traffic_all.reset_index(drop=True)
-for idx, row in df_traffic_all.iterrows():
-    total = row.drop(labels=["cex"]).sum()
-    df_traffic_all.loc[idx, df_traffic_all.columns != "cex"] = (
-        row.drop(labels=["cex"]) / total
-    )
-
-# correct Korea traffic
-df_traffic_all["South Korea"] = df_traffic_all["South Korea"] + df_traffic_all["Korea"]
-df_traffic_all.drop(columns=["Korea"], inplace=True)
-
-df_traffic_all.to_csv(PROCESSED_DATA_PATH / "traffic.csv", index=False)
+df_traffic_all.to_parquet(PROCESSED_DATA_PATH / "traffic_panel.parquet", index=False)

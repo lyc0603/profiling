@@ -16,6 +16,13 @@ USDT = "0xdac17f958d2ee523a2206206994597c13d831ec7"
 # GraphQL Endpoint
 ENS_ENDPOINT = "https://gateway.thegraph.com/api/subgraphs/id/5XqPmWe6gjyrJtFn9cLy237i4cWw2j9HcUJEXsP5qGtH"
 
+# Chunk Size
+CHUNK = 15
+
+# Data Range
+MIN_DATE = "2015-10-01"
+MAX_DATE = "2025-08-01"
+
 # Snowflake Data Schema
 token_transfer_schema = [
     "block_number",

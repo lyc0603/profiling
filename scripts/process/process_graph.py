@@ -8,7 +8,6 @@ from concurrent.futures import ProcessPoolExecutor
 from environ.constant import (
     token_transfer_schema,
     native_transfer_schema,
-    DATA_PATH,
     PROCESSED_DATA_PATH,
 )
 
@@ -24,7 +23,7 @@ def process_and_save(path, schema, output_dir):
     df = df[df["amount_usd"] != 0]
 
     # Unique filename using basename
-    filename = os.path.basename(path).replace(".snappy.parquet", ".csv")
+    filename = os.path.basename(path).replace(".parquet", ".csv")
     output_path = os.path.join(output_dir, filename)
     df.to_csv(output_path, index=False)
     return output_path
@@ -45,8 +44,12 @@ def run_pipeline(file_paths, schema, output_subdir, num_workers=10):
 
 
 if __name__ == "__main__":
-    token_files = glob.glob(f"{DATA_PATH}/ethereum/token_transfer/*.snappy.parquet")
-    native_files = glob.glob(f"{DATA_PATH}/ethereum/native_transfer/*.snappy.parquet")
+    token_files = glob.glob(
+        f"{PROCESSED_DATA_PATH}/ethereum/token_transfer_wo_sc/*.parquet"
+    )
+    native_files = glob.glob(
+        f"{PROCESSED_DATA_PATH}/ethereum/native_transfer_wo_sc/*.parquet"
+    )
 
     print("Processing token transfers...")
     run_pipeline(token_files, token_transfer_schema, output_subdir="token_transfer")

@@ -30,7 +30,7 @@ from environ.constant import (
 NAME_LIST = ["usdc", "usdt"]
 ADD_LIST = [USDC, USDT]
 
-INPUT_GLOB = f"{DATA_PATH}/ethereum/token_transfer/*.snappy.parquet"
+INPUT_GLOB = f"{PROCESSED_DATA_PATH}/ethereum/token_transfer_wo_sc/*.parquet"
 OUT_DIRS = {
     name: os.path.join(PROCESSED_DATA_PATH, f"transfer_{name}") for name in NAME_LIST
 }
