@@ -16,11 +16,10 @@ from environ.constant import (
 from tqdm import tqdm
 
 
-N_WORKERS = 10
+N_WORKERS = 15
 MIN_YEAR = pd.to_datetime(MIN_DATE).year
 
 # Load the early stage CEX country data
-
 df = []
 early_stage_files = glob(f"{DATA_PATH}/early_stage/*.xlsx")
 
@@ -52,7 +51,7 @@ for idx, row in df_early_stage.iterrows():
 df = pd.DataFrame(df)
 
 # Load the exchange data
-cex = pd.read_csv(f"{DATA_PATH}/cex.csv")
+cex = pd.read_excel(f"{DATA_PATH}/cex_wallet_260127.xlsx")
 cex["exchange"] = cex["exchange"].str.lower()
 cex = cex.loc[cex["network"] == "ETH"]
 

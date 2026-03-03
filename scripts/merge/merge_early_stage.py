@@ -15,7 +15,7 @@ MIN_YEAR = pd.to_datetime(MIN_DATE).year
 
 # Load the early stage CEX country data
 df_early_stage = pd.read_excel(
-    DATA_PATH / "early_stage_cex_country.xlsx",
+    DATA_PATH / "early_stage" / "early_stage_cex_country.xlsx",
     sheet_name="GeminiResults",
 )
 df_early_stage["exchange"] = df_early_stage["exchange_name"].str.lower()
@@ -78,5 +78,5 @@ final_early_stage_address_country = {}
 for wallet in intersection:
     final_early_stage_address_country[wallet] = early_stage_address_country[wallet]
 
-with open(PROCESSED_DATA_PATH / "early_stage_gt.json", "w") as f:
+with open(PROCESSED_DATA_PATH / "gt" / "early_stage_gt.json", "w") as f:
     json.dump(final_early_stage_address_country, f)

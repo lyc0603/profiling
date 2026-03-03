@@ -5,16 +5,16 @@ import numpy as np
 import pandas as pd
 import json
 from gensim.models import KeyedVectors
-from environ.constant import PROCESSED_DATA_PATH
+from environ.constant import PROCESSED_DATA_PATH, TARGETED_COUNTRIES
 from tqdm import tqdm
 
 # Load the ENS ground truth data
-with open(PROCESSED_DATA_PATH / "ground_truth.json", "r") as f:
+with open(PROCESSED_DATA_PATH / "gt" / "ens_gt.json", "r") as f:
     ens_ground_truth = json.load(f)
 
 
 # Load the early stage ground truth data
-with open(PROCESSED_DATA_PATH / "early_stage_gt.json", "r") as f:
+with open(PROCESSED_DATA_PATH / "gt" / "early_stage_gt.json", "r") as f:
     early_stage_ground_truth = json.load(f)
 
 # get the set of duplicated wallets in both ground truth datasets
@@ -35,9 +35,9 @@ with open(PROCESSED_DATA_PATH / "timezone" / "seed2id.json", "r") as f:
     seed2id_timezone = json.load(f)
 timezone_vectors = np.load(PROCESSED_DATA_PATH / "timezone" / "timezone.npy")
 
-# Load the country to region mapping
-with open(PROCESSED_DATA_PATH / "anchor_country_region.json", "r") as f:
-    country_region_mapping = json.load(f)
+# # Load the country to region mapping
+# with open(PROCESSED_DATA_PATH / "anchor_country_region.json", "r") as f:
+#     country_region_mapping = json.load(f)
 
 features = []
 gt = []
@@ -50,7 +50,11 @@ for country, wallet_list in tqdm(ens_ground_truth.items()):
             feature.extend(kv[str(seed2id_graph[wallet])].tolist())
             feature.extend(timezone_vectors[seed2id_timezone[wallet]].tolist())
             features.append(feature)
-            gt.append(country_region_mapping[country])
+            # gt.append(country_region_mapping[country])
+            if country in TARGETED_COUNTRIES:
+                gt.append(country)
+            else:
+                gt.append("Other")
         else:
             continue
 
@@ -61,7 +65,11 @@ for wallet, country in tqdm(early_stage_ground_truth.items()):
     feature.extend(kv[str(seed2id_graph[wallet])].tolist())
     feature.extend(timezone_vectors[seed2id_timezone[wallet]].tolist())
     features.append(feature)
-    gt.append(country_region_mapping[country])
+    # gt.append(country_region_mapping[country])
+    if country in TARGETED_COUNTRIES:
+        gt.append(country)
+    else:
+        gt.append("Other")
 
 os.makedirs(PROCESSED_DATA_PATH / "train", exist_ok=True)
 np.save(PROCESSED_DATA_PATH / "train" / "features.npy", np.array(features))

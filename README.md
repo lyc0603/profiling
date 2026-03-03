@@ -95,7 +95,19 @@ python scripts/db_id_out_degree.py
 python scripts/cpu_w2v.py
 ```
 
-## 4. Evaluation
+## 4. Ground Truth
+
+- Filter out early stage CEX country user
+```
+python scripts/process/process_early_stage.py
+```
+
+- Merge early stage CEX country user
+```
+python scripts/process/merge_early_stage.py
+```
+
+## 5. Evaluation
 
 - Process the trend (the shrinkage of number of address is due to 0 value txn and out degree)
 ```

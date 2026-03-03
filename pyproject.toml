@@ -32,6 +32,7 @@ dependencies = [
     "dovenv",
     "openpyxl",
     "shap",
+    "transformers[torch]",
 ]
 
 [project.optional-dependencies]

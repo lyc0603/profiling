@@ -5,7 +5,7 @@ from collections import defaultdict
 
 import pandas as pd
 
-from environ.constant import PROCESSED_DATA_PATH
+from environ.constant import DATA_PATH, PROCESSED_DATA_PATH
 
 
 # Load the anchor country name ISO mapping
@@ -18,7 +18,7 @@ anchor_country_iso["China"] = "CHN"
 iso_anchor_country = {v: k for k, v in anchor_country_iso.items()}
 
 df = pd.read_parquet(
-    PROCESSED_DATA_PATH / "3301_ens_language_country_with_weights.parquet"
+    DATA_PATH / "ens" / "3301_ens_language_country_with_weights.parquet"
 )
 
 # Keep only high confidence records and unique country
@@ -40,5 +40,5 @@ for _, row in df.iterrows():
 # Convert sets to lists
 country_address = {k: list(v) for k, v in country_address.items()}
 
-with open(PROCESSED_DATA_PATH / "ground_truth.json", "w") as f:
+with open(PROCESSED_DATA_PATH / "gt" / "ens_gt.json", "w") as f:
     json.dump(country_address, f)
